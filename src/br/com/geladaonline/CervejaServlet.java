@@ -13,11 +13,13 @@ import javax.servlet.http.HttpServletResponse;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
+import javax.xml.bind.Unmarshaller;
 import javax.xml.stream.XMLStreamWriter;
 
 import org.codehaus.jettison.mapped.MappedNamespaceConvention;
 import org.codehaus.jettison.mapped.MappedXMLStreamWriter;
 
+import br.com.geladaonline.model.Cerveja;
 import br.com.geladaonline.model.Estoque;
 import br.com.geladaonline.model.rest.Cervejas;
 
@@ -52,6 +54,32 @@ public class CervejaServlet extends HttpServlet {
 		} catch (Exception e) {
 			response.sendError(500, e.getMessage());
 		}
+	}
+	
+	protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+		String uri = request.getRequestURI();
+
+		String identificador = null;
+		try {
+			identificador = obtemIdentificador(uri);
+		} catch (RecursoSemIdentificadorException e) {
+			// 400 Erro no Cliente
+			response.sendError(400, e.getMessage());
+		}
+		
+		if (identificador != null && estoque.recuperarCervejaPeloNome(identificador) != null) {
+			response.sendError(409, "Já existe uma cerveja com esse nome");
+			return ;
+		}
+		
+		Cerveja cerveja = descreveXML(request, response);
+		cerveja.setNome(identificador);
+		estoque.adicionarCervejas(cerveja);
+		
+		// 201 Recurso criado (responder com Location e recurso criado)
+		response.setHeader("Location", uri);
+		response.setStatus(201);
+		escreveXML(request, response);
 	}
 	
 	private Object localizaObjetoASerEnviado(HttpServletRequest request){
@@ -129,6 +157,21 @@ public class CervejaServlet extends HttpServlet {
 			// 500 Erro no servidor
 			response.sendError(500);
 		}
+	}
+	
+	private Cerveja descreveXML(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		Cerveja cerveja = null;
+		
+		try {
+			Unmarshaller unmarshaller = context.createUnmarshaller();
+			cerveja = (Cerveja) unmarshaller.unmarshal(request.getInputStream());
+			return cerveja;
+		} catch (JAXBException e) {
+			// 500 Erro no servidor
+			response.sendError(500);
+		}
+		
+		return cerveja;
 	}
 
 }
