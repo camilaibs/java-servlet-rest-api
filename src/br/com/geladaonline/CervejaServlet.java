@@ -1,6 +1,8 @@
 package br.com.geladaonline;
 
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
 import java.util.ArrayList;
 
 import javax.servlet.ServletException;
@@ -35,21 +37,14 @@ public class CervejaServlet extends HttpServlet {
 	private Estoque estoque = new Estoque();
 
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
-		/*
-		 * Negociação de conteúdo pelo 
-		 * Header accept: applicaton/xml ou .../json e .../outros
-		 */
-		//
+		// Negociação de conteúdo pelo header accept: applicaton/xml ou .../json e .../outros
 		String accept = request.getHeader("Accept");
-		
-		Cervejas cervejas = new Cervejas();
-		cervejas.setCervejas(new ArrayList<>(estoque.listarCervejas()));
 		
 		try {
 			if ("application/xml".equals(accept)){
-				geraXML(response, cervejas);
+				escreveXML(request, response);
 			} else if("application/json".equals(accept)){
-				geraJSON(response, cervejas);				
+				escreveJSON(request, response);				
 			} else {
 				// 415 Formato não suportado
 				response.sendError(415);
@@ -58,22 +53,82 @@ public class CervejaServlet extends HttpServlet {
 			response.sendError(500, e.getMessage());
 		}
 	}
-
-	private void geraJSON(HttpServletResponse response, Cervejas cervejas) throws JAXBException, IOException {
-		response.setContentType("application/json;charset=UTF-8");
+	
+	private Object localizaObjetoASerEnviado(HttpServletRequest request){
+		Object objeto = null;
 		
-		MappedNamespaceConvention con = new MappedNamespaceConvention();
-		XMLStreamWriter xmlStreamWriter = new MappedXMLStreamWriter(con, response.getWriter());
+		try {
+			String identificador = obtemIdentificador(request.getRequestURI());
+			objeto = estoque.recuperarCervejaPeloNome(identificador);
+		} catch(RecursoSemIdentificadorException e) {
+			Cervejas cervejas = new Cervejas();
+			cervejas.setCervejas(new ArrayList<>(estoque.listarCervejas()));
+			objeto = cervejas;
+		}
 		
-		Marshaller marshaller = context.createMarshaller();
-		marshaller.marshal(cervejas, xmlStreamWriter);
+		return objeto ;
 	}
 
-	private void geraXML(HttpServletResponse response, Cervejas cervejas) throws JAXBException, IOException {
-		response.setContentType("application/xml;charset=UTF-8");
+	private String obtemIdentificador(String uri) throws RecursoSemIdentificadorException {
+		String[] partesDaUri = uri.split("/");
 		
-		Marshaller marshaller = context.createMarshaller();
-		marshaller.marshal(cervejas, response.getWriter());
+		boolean isContexto = false;
+		for (String parte : partesDaUri) {
+			if (parte.equals("cervejas")) {
+				isContexto = true;
+				continue;
+			}
+			
+			if (isContexto) {
+				try {
+					return URLDecoder.decode(parte, "UTF-8");
+				} catch (UnsupportedEncodingException e) {
+					return URLDecoder.decode(parte);
+				}
+			}
+		}
+			
+		throw new RecursoSemIdentificadorException("Recurso sem identificador");
+	}
+
+	private void escreveJSON(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		Object objetoAEscrever = localizaObjetoASerEnviado(request);
+		
+		if (objetoAEscrever == null) {
+			// 404 Recurso não encontrado
+			response.sendError(404);
+			return ;
+		}
+
+		try {
+			response.setContentType("application/json;charset=UTF-8");
+			MappedNamespaceConvention con = new MappedNamespaceConvention();
+			XMLStreamWriter xmlStreamWriter = new MappedXMLStreamWriter(con, response.getWriter());
+			Marshaller marshaller = context.createMarshaller();
+			marshaller.marshal(objetoAEscrever, xmlStreamWriter);
+		} catch(JAXBException e){
+			// 500 Erro no servidor
+			response.sendError(500);
+		}
+	}
+
+	private void escreveXML(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		Object objetoASerEnviado = localizaObjetoASerEnviado(request);
+		
+		if (objetoASerEnviado == null) {
+			// 404 Recurso não encontrado
+			response.sendError(404);
+			return ;
+		}
+		
+		try {
+			response.setContentType("application/xml;charset=UTF-8");
+			Marshaller marshaller = context.createMarshaller();
+			marshaller.marshal(objetoASerEnviado, response.getWriter());
+		} catch(JAXBException e) {
+			// 500 Erro no servidor
+			response.sendError(500);
+		}
 	}
 
 }
