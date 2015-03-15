@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.ArrayList;
+import java.util.List;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -14,9 +15,15 @@ import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 
+import org.apache.commons.io.IOUtils;
+import org.codehaus.jettison.json.JSONException;
+import org.codehaus.jettison.json.JSONObject;
 import org.codehaus.jettison.mapped.MappedNamespaceConvention;
+import org.codehaus.jettison.mapped.MappedXMLStreamReader;
 import org.codehaus.jettison.mapped.MappedXMLStreamWriter;
 
 import br.com.geladaonline.model.Cerveja;
@@ -72,16 +79,18 @@ public class CervejaServlet extends HttpServlet {
 			return ;
 		}
 		
-		Cerveja cerveja = descreveXML(request, response);
-		cerveja.setNome(identificador);
-		estoque.adicionarCervejas(cerveja);
+		String contentType = request.getContentType();
 		
-		// 201 Recurso criado (responder com Location e recurso criado)
-		response.setHeader("Location", uri);
-		response.setStatus(201);
-		escreveXML(request, response);
+		if ("txt/xml".equals(contentType) || "application/xml".equals(contentType)) {
+			descreveXML(request, response);
+		} else if("application/json".equals(contentType)){
+			descreveJSON(request, response);
+		} else {
+			// 415 Formato não suportado
+			response.sendError(415);
+		}
 	}
-	
+
 	private Object localizaObjetoASerEnviado(HttpServletRequest request){
 		Object objeto = null;
 		
@@ -117,6 +126,38 @@ public class CervejaServlet extends HttpServlet {
 		}
 			
 		throw new RecursoSemIdentificadorException("Recurso sem identificador");
+	}
+	
+	private void descreveJSON(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		String uri = request.getRequestURI();
+
+		try {
+			List<String> lines = IOUtils.readLines(request.getInputStream());
+			StringBuilder builder = new StringBuilder();
+			for (String line : lines) {
+				builder.append(line);
+			}
+			MappedNamespaceConvention con = new MappedNamespaceConvention();
+			JSONObject jsonObject = new JSONObject(builder.toString());
+			XMLStreamReader xmlStreamReader = new MappedXMLStreamReader(jsonObject, con);
+			Unmarshaller unmarshaller = context.createUnmarshaller();
+			
+			Cerveja cerveja = (Cerveja) unmarshaller.unmarshal(xmlStreamReader);
+			cerveja.setNome(obtemIdentificador(uri));
+			estoque.adicionarCervejas(cerveja);
+			
+			// 201 Recurso criado (responder com Location e recurso criado)
+			response.setHeader("Location", uri);
+			response.setStatus(201);
+			escreveJSON(request, response);
+			
+		} catch (IOException | JSONException | XMLStreamException | JAXBException e) {
+			// 500 Erro no servidor
+			response.sendError(500);
+		} catch (RecursoSemIdentificadorException e) {
+			// 400 Erro no cliente
+			response.sendError(400, e.getMessage());
+		}
 	}
 
 	private void escreveJSON(HttpServletRequest request, HttpServletResponse response) throws IOException {
@@ -159,19 +200,27 @@ public class CervejaServlet extends HttpServlet {
 		}
 	}
 	
-	private Cerveja descreveXML(HttpServletRequest request, HttpServletResponse response) throws IOException {
+	private void descreveXML(HttpServletRequest request, HttpServletResponse response) throws IOException {
+		String uri = request.getRequestURI();
+
 		Cerveja cerveja = null;
-		
 		try {
 			Unmarshaller unmarshaller = context.createUnmarshaller();
 			cerveja = (Cerveja) unmarshaller.unmarshal(request.getInputStream());
-			return cerveja;
+			cerveja.setNome(obtemIdentificador(uri));
+			estoque.adicionarCervejas(cerveja);
+			
+			// 201 Recurso criado (responder com Location e recurso criado)
+			response.setHeader("Location", uri);
+			response.setStatus(201);
+			escreveXML(request, response);
 		} catch (JAXBException e) {
 			// 500 Erro no servidor
 			response.sendError(500);
+		} catch (RecursoSemIdentificadorException e) {
+			// 400 Erro no cliente
+			response.sendError(400);
 		}
-		
-		return cerveja;
 	}
 
 }
